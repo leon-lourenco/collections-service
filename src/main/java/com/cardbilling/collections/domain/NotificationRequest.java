@@ -10,15 +10,15 @@ import java.util.Objects;
  * <p>There is deliberately no idempotency guard on this side. The legacy checked
  * {@code notificationRepository.existsByInvoiceAndStage} before publishing, which only worked
  * because the delinquency job and the notification table shared one database. {@code
- * notification-service} now enforces uniqueness on {@code (invoiceId, stage)} itself, so a rerun
- * of the same day is harmless without this service having to remember anything.
+ * notification-service} now enforces uniqueness on {@code (invoiceId, stage, channel)} itself, so
+ * a rerun of the same day is harmless without this service having to remember anything — and
+ * because the channel is part of that key, the legacy's separate EMAIL and SMS notifications for
+ * one stage are two distinct records rather than the second silently collapsing into the first.
  */
 public record NotificationRequest(
-        String customerId, String invoiceId, NotificationChannel channel, EscalationStage stage) {
+        long customerId, long invoiceId, NotificationChannel channel, EscalationStage stage) {
 
     public NotificationRequest {
-        Objects.requireNonNull(customerId, "customerId must not be null");
-        Objects.requireNonNull(invoiceId, "invoiceId must not be null");
         Objects.requireNonNull(channel, "channel must not be null");
         Objects.requireNonNull(stage, "stage must not be null");
     }

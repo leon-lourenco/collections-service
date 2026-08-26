@@ -23,7 +23,7 @@ class InterestCalculationTest {
     @DisplayName("first day overdue: flat 2% late fee plus 1% daily interest")
     void charges_the_late_fee_once_on_the_first_accrual() {
         InterestCalculation calculation =
-                InterestCalculation.forOverdueInvoice(Money.ofCents(125_000L, "BRL"), true, ACCRUAL_DATE);
+                InterestCalculation.forOverdueInvoice(Money.ofCents(125_000L), true, ACCRUAL_DATE);
 
         assertThat(calculation.lateFee().cents()).isEqualTo(2_500L);
         assertThat(calculation.dailyInterest().cents()).isEqualTo(1_250L);
@@ -35,7 +35,7 @@ class InterestCalculationTest {
     @DisplayName("every day after the first: 1% daily interest only, no second late fee")
     void charges_no_further_late_fee_after_the_first_accrual() {
         InterestCalculation calculation =
-                InterestCalculation.forOverdueInvoice(Money.ofCents(125_000L, "BRL"), false, ACCRUAL_DATE);
+                InterestCalculation.forOverdueInvoice(Money.ofCents(125_000L), false, ACCRUAL_DATE);
 
         assertThat(calculation.lateFee().isZero()).isTrue();
         assertThat(calculation.dailyInterest().cents()).isEqualTo(1_250L);
@@ -45,7 +45,7 @@ class InterestCalculationTest {
     @Test
     @DisplayName("interest is simple, not compounding: it is always taken on the original total")
     void accrues_on_the_original_total_every_day() {
-        Money originalTotal = Money.ofCents(100_000L, "BRL");
+        Money originalTotal = Money.ofCents(100_000L);
 
         long dayOne = InterestCalculation.forOverdueInvoice(originalTotal, true, ACCRUAL_DATE)
                 .dailyInterest()
@@ -70,7 +70,7 @@ class InterestCalculationTest {
     })
     void rounds_half_up_to_the_cent(long totalCents, long expectedFee, long expectedDaily) {
         InterestCalculation calculation =
-                InterestCalculation.forOverdueInvoice(Money.ofCents(totalCents, "BRL"), true, ACCRUAL_DATE);
+                InterestCalculation.forOverdueInvoice(Money.ofCents(totalCents), true, ACCRUAL_DATE);
 
         assertThat(calculation.lateFee().cents()).isEqualTo(expectedFee);
         assertThat(calculation.dailyInterest().cents()).isEqualTo(expectedDaily);
@@ -82,10 +82,10 @@ class InterestCalculationTest {
         // POST /invoices/{id}/interest takes {feeCents, dailyInterestCents} as two fields, so
         // summing them here would destroy information the invoice needs.
         InterestCalculation calculation =
-                InterestCalculation.forOverdueInvoice(Money.ofCents(200_000L, "BRL"), true, ACCRUAL_DATE);
+                InterestCalculation.forOverdueInvoice(Money.ofCents(200_000L), true, ACCRUAL_DATE);
 
         assertThat(calculation.lateFee().cents()).isEqualTo(4_000L);
         assertThat(calculation.dailyInterest().cents()).isEqualTo(2_000L);
-        assertThat(calculation.lateFee().currencyCode()).isEqualTo("BRL");
+        assertThat(calculation.total().cents()).isEqualTo(6_000L);
     }
 }

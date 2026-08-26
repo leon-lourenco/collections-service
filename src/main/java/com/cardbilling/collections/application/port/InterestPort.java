@@ -9,5 +9,5 @@ import com.cardbilling.collections.domain.InterestCalculation;
  */
 public interface InterestPort {
 
-    void applyInterest(String invoiceId, InterestCalculation calculation);
+    void applyInterest(long invoiceId, InterestCalculation calculation);
 }

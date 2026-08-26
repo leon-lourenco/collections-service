@@ -47,11 +47,12 @@ collections:
     # on data old enough to be wrong.
     retain-for: 10m
   notification:
-    # The legacy sent an EMAIL *and* an SMS for every stage. notification-service now deduplicates
-    # on (invoiceId, stage) with no channel in the key, so a second channel for the same stage
-    # would come back as the existing record and never be dispatched. One channel per stage is the
-    # honest reading of that contract; add SMS here once the key includes the channel.
-    channels: EMAIL
+    # Both channels, as card-billing-legacy's DelinquencyJob sent them: one EMAIL and one SMS per
+    # escalation stage. This is only correct because notification-service's uniqueness key is
+    # (invoiceId, stage, channel) - with the channel left out of that key, the SMS would come back
+    # as the existing EMAIL record and never be dispatched, which is the silent-drop failure this
+    # whole initiative exists to remove rather than reintroduce.
+    channels: EMAIL,SMS
   schedule:
     enabled: true
     cron: "0 30 3 * * *"
@@ -112,6 +113,13 @@ management:
   endpoint:
     health:
       show-details: always
+      status:
+        # DEGRADED sits between DOWN and UP: more severe than healthy, so it wins the aggregate
+        # and stays visible, but mapped to 200 so an unreachable billing-service does not make an
+        # orchestrator restart a service that is deliberately built to survive that outage.
+        order: DOWN,OUT_OF_SERVICE,DEGRADED,UP,UNKNOWN
+        http-mapping:
+          DEGRADED: 200
   health:
     circuitbreakers:
       enabled: true

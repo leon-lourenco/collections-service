@@ -42,7 +42,7 @@ class RunCollectionsUseCaseTest {
     @DisplayName("accrues interest and escalates every overdue invoice in one pass")
     void runs_both_legacy_jobs_over_a_single_fetch() {
         StubOverdueInvoicePort invoices = new StubOverdueInvoicePort(OverdueInvoiceSnapshot.live(
-                List.of(overdue("inv-1", 5, null), overdue("inv-2", 30, TODAY.minusDays(1)))));
+                List.of(overdue(1L, 5, null), overdue(2L, 30, TODAY.minusDays(1)))));
 
         CollectionsRunSummary summary = useCase(invoices).run(TODAY);
 
@@ -52,7 +52,7 @@ class RunCollectionsUseCaseTest {
         assertThat(summary.interestApplied()).isEqualTo(2);
         assertThat(summary.notificationsRequested()).isEqualTo(2);
         assertThat(summary.failures()).isZero();
-        assertThat(interest.applied).containsOnlyKeys("inv-1", "inv-2");
+        assertThat(interest.applied).containsOnlyKeys(1L, 2L);
         assertThat(notifications.requests)
                 .extracting(NotificationRequest::stage)
                 .containsExactly(EscalationStage.REMINDER_D5, EscalationStage.FORMAL_NOTICE_D30);
@@ -62,21 +62,21 @@ class RunCollectionsUseCaseTest {
     @DisplayName("the flat late fee is charged only on an invoice that has never accrued")
     void applies_the_legacy_interest_rule_per_invoice() {
         StubOverdueInvoicePort invoices = new StubOverdueInvoicePort(OverdueInvoiceSnapshot.live(
-                List.of(overdue("never-accrued", 6, null), overdue("accrued-before", 6, TODAY.minusDays(1)))));
+                List.of(overdue(11L, 6, null), overdue(12L, 6, TODAY.minusDays(1)))));
 
         useCase(invoices).run(TODAY);
 
-        assertThat(interest.applied.get("never-accrued").lateFee().cents()).isEqualTo(2_000L);
-        assertThat(interest.applied.get("accrued-before").lateFee().isZero()).isTrue();
-        assertThat(interest.applied.get("accrued-before").dailyInterest().cents()).isEqualTo(1_000L);
-        assertThat(interest.applied.get("never-accrued").accrualDate()).isEqualTo(TODAY);
+        assertThat(interest.applied.get(11L).lateFee().cents()).isEqualTo(2_000L);
+        assertThat(interest.applied.get(12L).lateFee().isZero()).isTrue();
+        assertThat(interest.applied.get(12L).dailyInterest().cents()).isEqualTo(1_000L);
+        assertThat(interest.applied.get(11L).accrualDate()).isEqualTo(TODAY);
     }
 
     @Test
     @DisplayName("an invoice already accrued today is skipped without a call")
     void does_not_re_accrue_an_invoice_on_the_same_day() {
         StubOverdueInvoicePort invoices =
-                new StubOverdueInvoicePort(OverdueInvoiceSnapshot.live(List.of(overdue("inv-1", 10, TODAY))));
+                new StubOverdueInvoicePort(OverdueInvoiceSnapshot.live(List.of(overdue(1L, 10, TODAY))));
 
         CollectionsRunSummary summary = useCase(invoices).run(TODAY);
 
@@ -92,7 +92,7 @@ class RunCollectionsUseCaseTest {
     @DisplayName("an invoice under five days late accrues interest but is not escalated yet")
     void does_not_escalate_below_the_first_stage() {
         StubOverdueInvoicePort invoices = new StubOverdueInvoicePort(
-                OverdueInvoiceSnapshot.live(List.of(overdue("inv-1", 4, null), overdue("inv-2", 0, null))));
+                OverdueInvoiceSnapshot.live(List.of(overdue(1L, 4, null), overdue(2L, 0, null))));
 
         CollectionsRunSummary summary = useCase(invoices).run(TODAY);
 
@@ -107,26 +107,26 @@ class RunCollectionsUseCaseTest {
     void isolates_a_per_invoice_failure() {
         // The legacy ran the whole loop in one @Transactional method, so a failure on the last
         // invoice rolled back every invoice before it. There is no shared transaction here.
-        interest.failFor("inv-2");
+        interest.failFor(2L);
         StubOverdueInvoicePort invoices = new StubOverdueInvoicePort(OverdueInvoiceSnapshot.live(List.of(
-                overdue("inv-1", 5, null), overdue("inv-2", 5, null), overdue("inv-3", 5, null))));
+                overdue(1L, 5, null), overdue(2L, 5, null), overdue(3L, 5, null))));
 
         CollectionsRunSummary summary = useCase(invoices).run(TODAY);
 
         assertThat(summary.failures()).isEqualTo(1);
         assertThat(summary.interestApplied()).isEqualTo(2);
-        assertThat(interest.applied).containsOnlyKeys("inv-1", "inv-3");
-        // inv-2 never reached escalation, but inv-3 - queued after it - still did.
+        assertThat(interest.applied).containsOnlyKeys(1L, 3L);
+        // Invoice 2 never reached escalation, but invoice 3 - queued after it - still did.
         assertThat(notifications.requests)
                 .extracting(NotificationRequest::invoiceId)
-                .containsExactly("inv-1", "inv-3");
+                .containsExactly(1L, 3L);
     }
 
     @Test
     @DisplayName("the run reports that it acted on stale cached data")
     void carries_the_snapshot_freshness_into_the_summary() {
         StubOverdueInvoicePort invoices = new StubOverdueInvoicePort(
-                new OverdueInvoiceSnapshot(List.of(overdue("inv-1", 5, null)), Freshness.CACHED_STALE));
+                new OverdueInvoiceSnapshot(List.of(overdue(1L, 5, null)), Freshness.CACHED_STALE));
 
         CollectionsRunSummary summary = useCase(invoices).run(TODAY);
 
@@ -137,7 +137,7 @@ class RunCollectionsUseCaseTest {
     @Test
     void reports_a_live_run_as_not_degraded() {
         StubOverdueInvoicePort invoices =
-                new StubOverdueInvoicePort(OverdueInvoiceSnapshot.live(List.of(overdue("inv-1", 5, null))));
+                new StubOverdueInvoicePort(OverdueInvoiceSnapshot.live(List.of(overdue(1L, 5, null))));
 
         assertThat(useCase(invoices).run(TODAY).degraded()).isFalse();
     }
@@ -157,7 +157,7 @@ class RunCollectionsUseCaseTest {
     @DisplayName("configuring both channels sends one notification per channel per stage")
     void honours_the_configured_channel_list() {
         StubOverdueInvoicePort invoices =
-                new StubOverdueInvoicePort(OverdueInvoiceSnapshot.live(List.of(overdue("inv-1", 15, null))));
+                new StubOverdueInvoicePort(OverdueInvoiceSnapshot.live(List.of(overdue(1L, 15, null))));
 
         CollectionsRunSummary summary = new RunCollectionsUseCase(
                         invoices,
@@ -175,13 +175,13 @@ class RunCollectionsUseCaseTest {
     @Test
     void carries_the_customer_through_to_the_notification() {
         StubOverdueInvoicePort invoices =
-                new StubOverdueInvoicePort(OverdueInvoiceSnapshot.live(List.of(overdue("inv-9", 20, null))));
+                new StubOverdueInvoicePort(OverdueInvoiceSnapshot.live(List.of(overdue(9L, 20, null))));
 
         useCase(invoices).run(TODAY);
 
         NotificationRequest request = notifications.requests.getFirst();
-        assertThat(request.customerId()).isEqualTo("cus-inv-9");
-        assertThat(request.invoiceId()).isEqualTo("inv-9");
+        assertThat(request.customerId()).isEqualTo(1_009L);
+        assertThat(request.invoiceId()).isEqualTo(9L);
         assertThat(request.stage()).isEqualTo(EscalationStage.REMINDER_D15);
         assertThat(request.channel()).isEqualTo(NotificationChannel.EMAIL);
     }
@@ -190,9 +190,15 @@ class RunCollectionsUseCaseTest {
         return new RunCollectionsUseCase(invoices, interest, notifications, List.of(NotificationChannel.EMAIL));
     }
 
-    private static OverdueInvoice overdue(String id, int daysOverdue, LocalDate lastAccrual) {
+    /** Customer id is derived from the invoice id so assertions can tell which is which. */
+    private static OverdueInvoice overdue(long id, int daysOverdue, LocalDate lastAccrual) {
         return new OverdueInvoice(
-                id, "cus-" + id, Money.ofCents(100_000L, "BRL"), TODAY.minusDays(daysOverdue), lastAccrual);
+                id,
+                1_000L + id,
+                Money.ofCents(100_000L),
+                Money.ofCents(100_000L),
+                TODAY.minusDays(daysOverdue),
+                lastAccrual);
     }
 
     private static final class StubOverdueInvoicePort implements OverdueInvoicePort {
@@ -220,15 +226,15 @@ class RunCollectionsUseCaseTest {
 
     private static final class RecordingInterestPort implements InterestPort {
 
-        private final Map<String, InterestCalculation> applied = new ConcurrentHashMap<>();
-        private final Set<String> failing = new HashSet<>();
+        private final Map<Long, InterestCalculation> applied = new ConcurrentHashMap<>();
+        private final Set<Long> failing = new HashSet<>();
 
-        void failFor(String invoiceId) {
+        void failFor(long invoiceId) {
             failing.add(invoiceId);
         }
 
         @Override
-        public void applyInterest(String invoiceId, InterestCalculation calculation) {
+        public void applyInterest(long invoiceId, InterestCalculation calculation) {
             if (failing.contains(invoiceId)) {
                 throw new IllegalStateException("billing-service rejected " + invoiceId);
             }

@@ -2,6 +2,7 @@ package com.cardbilling.collections.infrastructure.metrics;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tags;
 import org.springframework.stereotype.Component;
 
 /**
@@ -57,8 +58,12 @@ public class CollectionsMetrics {
     }
 
     public void recordCircuitBreakerStateChange(String state) {
-        meterRegistry.gauge("circuit.breaker.state",
-            Map.of("state", state),
+        // Micrometer tags are an Iterable<Tag>, not a Map. Note that resilience4j-micrometer
+        // already publishes resilience4j_circuitbreaker_state for every instance, so this is a
+        // second, hand-maintained source of the same fact.
+        meterRegistry.gauge(
+            "circuit.breaker.state",
+            Tags.of("state", state),
             state.equals("CLOSED") ? 0 : (state.equals("OPEN") ? 1 : 2));
     }
 

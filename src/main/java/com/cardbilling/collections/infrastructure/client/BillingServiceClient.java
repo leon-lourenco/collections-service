@@ -60,7 +60,7 @@ public class BillingServiceClient implements InterestPort {
     @Override
     @Retry(name = "billing-apply-interest")
     @CircuitBreaker(name = "billing-apply-interest")
-    public void applyInterest(String invoiceId, InterestCalculation calculation) {
+    public void applyInterest(long invoiceId, InterestCalculation calculation) {
         restClient
                 .post()
                 .uri("/invoices/{id}/interest", invoiceId)

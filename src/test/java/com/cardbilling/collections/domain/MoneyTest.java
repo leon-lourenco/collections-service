@@ -1,7 +1,6 @@
 package com.cardbilling.collections.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import org.junit.jupiter.api.DisplayName;
@@ -11,9 +10,9 @@ class MoneyTest {
 
     @Test
     void rounds_a_percentage_half_up_to_the_cent() {
-        assertThat(Money.ofCents(25L, "BRL").percentage(new BigDecimal("0.02")).cents())
+        assertThat(Money.ofCents(25L).percentage(new BigDecimal("0.02")).cents())
                 .isEqualTo(1L); // 0.5 rounds up, not to even
-        assertThat(Money.ofCents(24L, "BRL").percentage(new BigDecimal("0.02")).cents())
+        assertThat(Money.ofCents(24L).percentage(new BigDecimal("0.02")).cents())
                 .isEqualTo(0L); // 0.48 rounds down
     }
 
@@ -22,26 +21,20 @@ class MoneyTest {
     void does_not_drift_on_amounts_a_double_cannot_hold() {
         // 0.02 has no exact binary representation, so the legacy's `total * 0.02` was only ever
         // approximately right. At this magnitude a double has already lost whole cents.
-        Money huge = Money.ofCents(100_000_000_000_000_001L, "BRL");
+        Money huge = Money.ofCents(100_000_000_000_000_001L);
 
         assertThat(huge.percentage(new BigDecimal("0.01")).cents()).isEqualTo(1_000_000_000_000_000L);
     }
 
     @Test
-    void keeps_the_currency_through_arithmetic() {
-        Money fee = Money.ofCents(2_500L, "BRL");
-        Money interest = Money.ofCents(1_250L, "BRL");
-
-        assertThat(fee.plus(interest)).isEqualTo(Money.ofCents(3_750L, "BRL"));
-        assertThat(fee.percentage(new BigDecimal("0.5")).currencyCode()).isEqualTo("BRL");
+    void adds_without_overflowing_silently() {
+        assertThat(Money.ofCents(2_500L).plus(Money.ofCents(1_250L))).isEqualTo(Money.ofCents(3_750L));
+        assertThat(Money.ZERO.plus(Money.ofCents(10L)).cents()).isEqualTo(10L);
     }
 
     @Test
-    @DisplayName("adding across currencies is a bug, not a conversion")
-    void refuses_to_add_different_currencies() {
-        assertThatThrownBy(() -> Money.ofCents(100L, "BRL").plus(Money.ofCents(100L, "USD")))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("USD")
-                .hasMessageContaining("BRL");
+    void knows_when_it_is_zero() {
+        assertThat(Money.ZERO.isZero()).isTrue();
+        assertThat(Money.ofCents(1L).isZero()).isFalse();
     }
 }

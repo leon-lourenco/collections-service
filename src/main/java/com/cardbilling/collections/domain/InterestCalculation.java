@@ -30,16 +30,16 @@ public record InterestCalculation(Money lateFee, Money dailyInterest, LocalDate 
     }
 
     /**
-     * @param invoiceTotal the invoice's original total, not its current balance
+     * @param invoiceTotal the invoice's original cycle total, not its current balance. Passing
+     *     {@code billing-service}'s {@code amountOwedCents} here instead would silently turn this
+     *     from simple interest into compounding interest — a different product, not a refactor.
      * @param firstAccrual whether this is the first day interest has ever been accrued on this
      *     invoice — the flat late fee is charged once, on that first day only
      */
     public static InterestCalculation forOverdueInvoice(
             Money invoiceTotal, boolean firstAccrual, LocalDate accrualDate) {
         Objects.requireNonNull(invoiceTotal, "invoiceTotal must not be null");
-        Money lateFee = firstAccrual
-                ? invoiceTotal.percentage(LATE_FEE_RATE)
-                : new Money(0L, invoiceTotal.currency());
+        Money lateFee = firstAccrual ? invoiceTotal.percentage(LATE_FEE_RATE) : Money.ZERO;
         return new InterestCalculation(lateFee, invoiceTotal.percentage(DAILY_INTEREST_RATE), accrualDate);
     }
 

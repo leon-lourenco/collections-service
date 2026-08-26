@@ -46,8 +46,34 @@ class OverdueInvoiceTest {
         assertThat(subsequent.dailyInterest().cents()).isEqualTo(1_000L); // 1% of 100000
     }
 
+    @Test
+    @DisplayName("interest is charged on the cycle total, never on billing-service's amountOwed")
+    void never_accrues_on_an_amount_that_already_includes_interest() {
+        // This invoice closed at 100000 and has already had 37500 in interest applied, so
+        // billing-service reports 137500 owed. Charging 1% of the amount owed would be
+        // compounding; the ported rule is simple interest on the original total.
+        OverdueInvoice partlyAccrued = new OverdueInvoice(
+                1L,
+                7L,
+                Money.ofCents(100_000L),
+                Money.ofCents(137_500L),
+                DUE_DATE,
+                DUE_DATE.plusDays(9));
+
+        InterestCalculation calculation = partlyAccrued.interestFor(DUE_DATE.plusDays(10));
+
+        assertThat(calculation.dailyInterest().cents()).isEqualTo(1_000L); // 1% of 100000
+        assertThat(calculation.dailyInterest().cents()).isNotEqualTo(1_375L); // ...not 1% of 137500
+        assertThat(partlyAccrued.amountOwed().cents()).isEqualTo(137_500L);
+    }
+
     private OverdueInvoice invoiceLastAccruedOn(LocalDate lastInterestAccrualDate) {
         return new OverdueInvoice(
-                "inv-1", "cus-1", Money.ofCents(100_000L, "BRL"), DUE_DATE, lastInterestAccrualDate);
+                1L,
+                7L,
+                Money.ofCents(100_000L),
+                Money.ofCents(100_000L),
+                DUE_DATE,
+                lastInterestAccrualDate);
     }
 }

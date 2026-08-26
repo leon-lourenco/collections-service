@@ -23,10 +23,10 @@ import java.util.List;
 public record CachedOverdueInvoices(Instant cachedAt, List<CachedInvoice> invoices) {
 
     public record CachedInvoice(
-            String invoiceId,
-            String customerId,
+            long invoiceId,
+            long customerId,
             long totalAmountCents,
-            String currency,
+            long amountOwedCents,
             LocalDate dueDate,
             LocalDate lastInterestAccrualDate) {
 
@@ -35,7 +35,7 @@ public record CachedOverdueInvoices(Instant cachedAt, List<CachedInvoice> invoic
                     invoice.invoiceId(),
                     invoice.customerId(),
                     invoice.totalAmount().cents(),
-                    invoice.totalAmount().currencyCode(),
+                    invoice.amountOwed().cents(),
                     invoice.dueDate(),
                     invoice.lastInterestAccrualDate());
         }
@@ -44,7 +44,8 @@ public record CachedOverdueInvoices(Instant cachedAt, List<CachedInvoice> invoic
             return new OverdueInvoice(
                     invoiceId,
                     customerId,
-                    Money.ofCents(totalAmountCents, currency),
+                    Money.ofCents(totalAmountCents),
+                    Money.ofCents(amountOwedCents),
                     dueDate,
                     lastInterestAccrualDate);
         }

@@ -57,7 +57,7 @@ import org.springframework.test.web.servlet.MockMvc;
             "spring.data.redis.connect-timeout=15s",
             "collections.cache.fresh-for=60s",
             "collections.cache.retain-for=10m",
-            "collections.notification.channels=EMAIL",
+            "collections.notification.channels=EMAIL,SMS",
             // Short enough that a deliberately delayed stub trips it, generous enough that the
             // first call out of a cold context - JVM, RestClient, and WireMock's Jetty all warming
             // up at once - is not mistaken for a downstream that is down.
@@ -77,25 +77,48 @@ class CollectionsResilienceIntegrationTest extends DownstreamServicesTestBase {
     private static final LocalDate AS_OF = LocalDate.of(2026, 8, 25);
     private static final String CACHE_KEY = "billing:invoices:overdue:2026-08-25";
 
-    /** Two invoices: one never accrued and 10 days late, one accrued yesterday and 30 days late. */
+    /**
+     * Two invoices: one never accrued and 10 days late, one accrued yesterday and 30 days late.
+     *
+     * <p>Shaped as billing-service's real {@code InvoiceResponse}, fields this service does not
+     * bind included on purpose — a stub that only returns the fields the consumer happens to want
+     * proves nothing about deserialising the actual response. Note invoice 2 has interest already
+     * applied, so its {@code amountOwedCents} is above its {@code totalAmountCents}.
+     */
     private static final String OVERDUE_PAYLOAD =
             """
             [
               {
-                "invoiceId": "inv-1",
-                "customerId": "cus-1",
-                "totalAmountCents": 125000,
-                "currency": "BRL",
+                "id": 1,
+                "cardId": 55,
+                "customerId": 1001,
+                "documentNumber": "12345678901",
+                "referenceMonth": "2026-08",
+                "closingDate": "2026-08-05",
                 "dueDate": "2026-08-15",
-                "lastInterestAccrualDate": null
+                "totalAmountCents": 125000,
+                "interestAppliedCents": 0,
+                "amountOwedCents": 125000,
+                "amountPaidCents": 0,
+                "amountDueCents": 125000,
+                "lastInterestAccrualDate": null,
+                "status": "CLOSED"
               },
               {
-                "invoiceId": "inv-2",
-                "customerId": "cus-2",
-                "totalAmountCents": 80000,
-                "currency": "BRL",
+                "id": 2,
+                "cardId": 56,
+                "customerId": 1002,
+                "documentNumber": "98765432100",
+                "referenceMonth": "2026-07",
+                "closingDate": "2026-07-16",
                 "dueDate": "2026-07-26",
-                "lastInterestAccrualDate": "2026-08-24"
+                "totalAmountCents": 80000,
+                "interestAppliedCents": 4800,
+                "amountOwedCents": 84800,
+                "amountPaidCents": 0,
+                "amountDueCents": 84800,
+                "lastInterestAccrualDate": "2026-08-24",
+                "status": "OVERDUE"
               }
             ]
             """;
@@ -116,8 +139,19 @@ class CollectionsResilienceIntegrationTest extends DownstreamServicesTestBase {
         return (MutableClock) clock;
     }
 
+    private static boolean warmedUp;
+
     @BeforeEach
     void resetEverything() {
+        resetState();
+        if (!warmedUp) {
+            warmedUp = true;
+            warmUpTheStack();
+            resetState();
+        }
+    }
+
+    private void resetState() {
         BILLING_SERVICE.resetAll();
         NOTIFICATION_SERVICE.resetAll();
 
@@ -137,6 +171,26 @@ class CollectionsResilienceIntegrationTest extends DownstreamServicesTestBase {
                 .willReturn(WireMock.aResponse().withStatus(204)));
     }
 
+    /**
+     * One unasserted pass through the whole stack before the first real test runs.
+     *
+     * <p>These tests give {@code billing-service} a deliberately tight read timeout so a delayed
+     * stub can trip it. The very first call out of a cold context — classes still loading, the
+     * HTTP client opening its first connection, WireMock's Jetty warming up — can take longer than
+     * that on its own, which made whichever test happened to run first fail intermittently for a
+     * reason that had nothing to do with what it was testing. Paying that cost once here, where
+     * nothing is asserted, is better than widening the timeout until the timeout test stops
+     * meaning anything.
+     */
+    private void warmUpTheStack() {
+        stubOverdueInvoices();
+        try {
+            mockMvc.perform(post("/collections/run").param("date", AS_OF.toString()).with(jwt()));
+        } catch (Exception ignored) {
+            // A warm-up that fails has still loaded the classes and opened the connections.
+        }
+    }
+
     @Test
     @DisplayName("a healthy run reads billing-service live, acts on it, and caches the result")
     void runs_live_and_populates_the_cache() throws Exception {
@@ -148,41 +202,50 @@ class CollectionsResilienceIntegrationTest extends DownstreamServicesTestBase {
                 .andExpect(jsonPath("$.degraded").value(false))
                 .andExpect(jsonPath("$.overdueInvoices").value(2))
                 .andExpect(jsonPath("$.interestApplied").value(2))
-                .andExpect(jsonPath("$.notificationsRequested").value(2))
+                // Two invoices, two channels each - the legacy's EMAIL-and-SMS pair per stage.
+                .andExpect(jsonPath("$.notificationsRequested").value(4))
                 .andExpect(jsonPath("$.failures").value(0));
 
         assertThat(redis.hasKey(CACHE_KEY)).isTrue();
         BILLING_SERVICE.verify(1, overdueRequest());
 
         // The flat 2% fee applies only to the invoice that has never accrued before; both get 1%.
+        // Invoice 2 is charged 1% of its 80000 cycle total, not of the 84800 it currently owes -
+        // simple interest, exactly as the legacy computed it.
         BILLING_SERVICE.verify(
                 1,
-                WireMock.postRequestedFor(WireMock.urlPathEqualTo("/invoices/inv-1/interest"))
+                WireMock.postRequestedFor(WireMock.urlPathEqualTo("/invoices/1/interest"))
                         .withRequestBody(WireMock.equalToJson(
                                 """
                                 {"feeCents":2500,"dailyInterestCents":1250,"accrualDate":"2026-08-25"}""")));
         BILLING_SERVICE.verify(
                 1,
-                WireMock.postRequestedFor(WireMock.urlPathEqualTo("/invoices/inv-2/interest"))
+                WireMock.postRequestedFor(WireMock.urlPathEqualTo("/invoices/2/interest"))
                         .withRequestBody(WireMock.equalToJson(
                                 """
                                 {"feeCents":0,"dailyInterestCents":800,"accrualDate":"2026-08-25"}""")));
 
-        // 10 days late is the D+5 reminder; 30 days late is the formal notice.
-        NOTIFICATION_SERVICE.verify(
-                1,
-                WireMock.postRequestedFor(WireMock.urlPathEqualTo("/notifications"))
-                        .withRequestBody(WireMock.equalToJson(
-                                """
-                                {"customerId":"cus-1","invoiceId":"inv-1","channel":"EMAIL",\
-                                "stage":"REMINDER_D5"}""")));
-        NOTIFICATION_SERVICE.verify(
-                1,
-                WireMock.postRequestedFor(WireMock.urlPathEqualTo("/notifications"))
-                        .withRequestBody(WireMock.equalToJson(
-                                """
-                                {"customerId":"cus-2","invoiceId":"inv-2","channel":"EMAIL",\
-                                "stage":"FORMAL_NOTICE_D30"}""")));
+        // 10 days late is the D+5 reminder; 30 days late is the formal notice. Each goes out on
+        // both channels, which only stays two distinct records because notification-service's
+        // uniqueness key includes the channel.
+        for (String channel : new String[] {"EMAIL", "SMS"}) {
+            NOTIFICATION_SERVICE.verify(
+                    1,
+                    WireMock.postRequestedFor(WireMock.urlPathEqualTo("/notifications"))
+                            .withRequestBody(WireMock.equalToJson(
+                                    """
+                                    {"customerId":1001,"invoiceId":1,"channel":"%s",\
+                                    "stage":"REMINDER_D5"}"""
+                                            .formatted(channel))));
+            NOTIFICATION_SERVICE.verify(
+                    1,
+                    WireMock.postRequestedFor(WireMock.urlPathEqualTo("/notifications"))
+                            .withRequestBody(WireMock.equalToJson(
+                                    """
+                                    {"customerId":1002,"invoiceId":2,"channel":"%s",\
+                                    "stage":"FORMAL_NOTICE_D30"}"""
+                                            .formatted(channel))));
+        }
     }
 
     @Test
@@ -219,7 +282,7 @@ class CollectionsResilienceIntegrationTest extends DownstreamServicesTestBase {
                 // ...and the run still acted on the same two invoices it saw while billing was up.
                 .andExpect(jsonPath("$.overdueInvoices").value(2))
                 .andExpect(jsonPath("$.interestApplied").value(2))
-                .andExpect(jsonPath("$.notificationsRequested").value(2));
+                .andExpect(jsonPath("$.notificationsRequested").value(4));
 
         // One live call, then three retried attempts before the fallback took over.
         BILLING_SERVICE.verify(4, overdueRequest());
@@ -312,7 +375,7 @@ class CollectionsResilienceIntegrationTest extends DownstreamServicesTestBase {
         stubOverdueInvoices();
         NOTIFICATION_SERVICE.resetAll();
         NOTIFICATION_SERVICE.stubFor(WireMock.post(WireMock.urlPathEqualTo("/notifications"))
-                .withRequestBody(WireMock.matchingJsonPath("$.invoiceId", WireMock.equalTo("inv-1")))
+                .withRequestBody(WireMock.matchingJsonPath("$[?(@.invoiceId == 1)]"))
                 .willReturn(WireMock.aResponse().withStatus(500)));
         NOTIFICATION_SERVICE.stubFor(WireMock.post(WireMock.urlPathEqualTo("/notifications"))
                 .atPriority(10)
@@ -322,8 +385,9 @@ class CollectionsResilienceIntegrationTest extends DownstreamServicesTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.overdueInvoices").value(2))
                 .andExpect(jsonPath("$.failures").value(1))
-                // inv-2, queued after the failing invoice, was still processed.
-                .andExpect(jsonPath("$.notificationsRequested").value(1))
+                // Invoice 1 aborts on its first channel, so neither of its notifications lands;
+                // invoice 2, queued after it, still gets both.
+                .andExpect(jsonPath("$.notificationsRequested").value(2))
                 .andExpect(jsonPath("$.interestApplied").value(2));
     }
 

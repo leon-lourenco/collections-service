@@ -2,31 +2,39 @@ package com.cardbilling.collections.infrastructure.client;
 
 import com.cardbilling.collections.domain.Money;
 import com.cardbilling.collections.domain.OverdueInvoice;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.time.LocalDate;
 
 /**
- * One element of {@code billing-service}'s {@code GET /invoices/overdue?asOf={date}} response.
+ * One element of {@code billing-service}'s {@code GET /invoices/overdue?asOf={date}} response,
+ * bound to that service's actual {@code InvoiceResponse} rather than to an assumption about it.
  *
- * <p>{@code lastInterestAccrualDate} is the field this service cannot do its job without:
- * {@code POST /invoices/{id}/interest} takes {@code feeCents} and {@code dailyInterestCents}
- * separately, which means the caller has to know whether the one-off 2% late fee has already been
- * charged. ARCHITECTURE.md documents the interest endpoint but not the overdue payload's shape,
- * so this is the contract this service assumes and stubs against — worth confirming against
- * {@code billing-service}'s actual response before the first cross-service run.
+ * <p>Only the six fields this service acts on are bound. {@code billing-service} also returns
+ * {@code cardId}, {@code documentNumber}, {@code referenceMonth}, {@code closingDate},
+ * {@code interestAppliedCents}, {@code amountPaidCents}, {@code amountDueCents} and
+ * {@code status}; ignoring unknown properties explicitly means a field added on their side is a
+ * non-event here instead of a deserialisation failure in the middle of a run.
+ *
+ * <p>Both amounts are carried. {@code totalAmountCents} is the cycle total the invoice closed
+ * with, and the only correct base for a simple-interest charge. {@code amountOwedCents} is that
+ * total plus interest already applied — {@code billing-service} computes it and this service reads
+ * it rather than adding the two components back up itself.
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 record OverdueInvoiceResponse(
-        String invoiceId,
-        String customerId,
+        Long id,
+        Long customerId,
         long totalAmountCents,
-        String currency,
+        long amountOwedCents,
         LocalDate dueDate,
         LocalDate lastInterestAccrualDate) {
 
     OverdueInvoice toDomain() {
         return new OverdueInvoice(
-                invoiceId,
+                id,
                 customerId,
-                Money.ofCents(totalAmountCents, currency),
+                Money.ofCents(totalAmountCents),
+                Money.ofCents(amountOwedCents),
                 dueDate,
                 lastInterestAccrualDate);
     }
