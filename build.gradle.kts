@@ -34,6 +34,8 @@ dependencies {
     // Resilience4j's annotations (@CircuitBreaker, @Retry) are AspectJ-style pointcuts applied
     // through Spring AOP proxies, so the aspectj starter is not optional here.
     implementation("org.springframework.boot:spring-boot-starter-aspectj")
+    implementation("io.micrometer:micrometer-registry-prometheus")
+    implementation("net.logstash.logback:logstash-logback-encoder:7.4")
     implementation(libs.springdoc.openapi.starter.webmvc.ui)
     implementation(libs.resilience4j.spring.boot)
 
