@@ -44,4 +44,9 @@ services:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8182 && echo done"]
       interval: 10s
       timeout: 5s
-      retries: 15
+      retries: 10
+      # Keycloak re-runs Quarkus augmentation on first start; on a cold, busy machine that took
+      # 210s in a real run here. Without a start_period long enough to cover it, compose marks the
+      # container unhealthy while it is still legitimately starting, and `up --wait` gives up on a
+      # server that was going to come up fine.
+      start_period: 240s
