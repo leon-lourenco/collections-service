@@ -1,0 +1,125 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: collections-service
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
+  security:
+    oauth2:
+      # This service is both a client (it calls billing-service and notification-service) and a
+      # resource server (its own /collections/run triggers real money movement downstream).
+      client:
+        registration:
+          collections-service:
+            provider: keycloak
+            client-id: collections-service
+            client-secret: ${KEYCLOAK_CLIENT_SECRET:collections-service-secret}
+            authorization-grant-type: client_credentials
+        provider:
+          keycloak:
+            token-uri: ${KEYCLOAK_TOKEN_URI:http://localhost:8182/realms/card-billing/protocol/openid-connect/token}
+      resourceserver:
+        jwt:
+          # jwk-set-uri rather than issuer-uri on purpose: issuer-uri makes Boot fetch Keycloak's
+          # discovery document at startup, so this service would refuse to start whenever Keycloak
+          # is down. The JWK set is fetched lazily on the first token instead.
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8182/realms/card-billing/protocol/openid-connect/certs}
+
+collections:
+  billing-service:
+    base-url: ${BILLING_SERVICE_URL:http://localhost:8081}
+    connect-timeout: 2s
+    read-timeout: 5s
+  notification-service:
+    base-url: ${NOTIFICATION_SERVICE_URL:http://localhost:8083}
+    connect-timeout: 2s
+    read-timeout: 5s
+  cache:
+    # Served without calling billing-service at all within this window...
+    fresh-for: 60s
+    # ...and kept this long purely as a fallback for an unreachable billing-service. Past it,
+    # Redis expires the key and a run with no reachable billing-service fails instead of acting
+    # on data old enough to be wrong.
+    retain-for: 10m
+  notification:
+    # The legacy sent an EMAIL *and* an SMS for every stage. notification-service now deduplicates
+    # on (invoiceId, stage) with no channel in the key, so a second channel for the same stage
+    # would come back as the existing record and never be dispatched. One channel per stage is the
+    # honest reading of that contract; add SMS here once the key includes the channel.
+    channels: EMAIL
+  schedule:
+    enabled: true
+    cron: "0 30 3 * * *"
+    zone: America/Sao_Paulo
+  outbound-auth:
+    enabled: true
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: true
+        # A 4xx means we sent something wrong, not that the downstream is unhealthy. Counting it
+        # as a failure would open the breaker over our own bug and hide it behind a fallback.
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+    instances:
+      # One instance per downstream call, so a struggling overdue query cannot open the breaker
+      # that guards interest application, or the reverse.
+      billing-overdue-invoices:
+        base-config: default
+      billing-apply-interest:
+        base-config: default
+      notification-request:
+        base-config: default
+  retry:
+    configs:
+      default:
+        max-attempts: 3
+        wait-duration: 200ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        # Only transport failures and 5xx are retried. CallNotPermittedException is deliberately
+        # absent: retrying a call the open breaker already refused just burns the backoff window.
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+    instances:
+      billing-overdue-invoices:
+        base-config: default
+      billing-apply-interest:
+        base-config: default
+      notification-request:
+        base-config: default
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,circuitbreakers,circuitbreakerevents,retries,retryevents
+  endpoint:
+    health:
+      show-details: always
+  health:
+    circuitbreakers:
+      enabled: true
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  level:
+    com.cardbilling.collections: INFO

@@ -1,0 +1,24 @@
+{
+  "realm": "card-billing",
+  "enabled": true,
+  "accessTokenLifespan": 300,
+  "sslRequired": "none",
+  "clients": [
+    {
+      "clientId": "collections-service",
+      "name": "collections-service",
+      "description": "Client-credentials client for collections-service. It uses this to obtain its own token before calling billing-service and notification-service, and validates incoming tokens from this same realm on its own /collections/run endpoint.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "collections-service-secret",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "fullScopeAllowed": true
+    }
+  ]
+}

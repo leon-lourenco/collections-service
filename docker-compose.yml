@@ -1,0 +1,47 @@
+# Solo development for collections-service. Everything this one service needs to run on its own,
+# nothing it doesn't - there is no Postgres here because this service owns no database.
+#
+# Ports, chosen so all four services in card-billing-modernization can run side by side:
+#   6379  Redis        - collections-service is the only service in the initiative that uses Redis
+#   8182  Keycloak     - the service itself runs on 8082, so its solo Keycloak sits at 81xx with
+#                        the same last two digits. Avoids 8080/8090 and the 8081-8084 range the
+#                        four services themselves occupy.
+#
+# For a real cross-service run (billing-service and notification-service actually reachable), use
+# the full-platform compose file in the card-billing-modernization hub repo instead of this one.
+
+services:
+  redis:
+    image: redis:8-alpine
+    container_name: collections-redis
+    ports:
+      - "6379:6379"
+    # Persistence off on purpose: everything in here is a 60-second cache of another service's
+    # data. Surviving a restart would mean serving invoices from before the restart as if they
+    # were current.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7
+    container_name: collections-keycloak
+    command: ["start-dev", "--import-realm", "--http-port=8182"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    volumes:
+      # Stopgap: ARCHITECTURE.md puts the card-billing realm in the card-billing-shared submodule.
+      # That repo does not exist yet, so a local copy with just this service's client lives here
+      # and is replaced by the shared export once the submodule lands.
+      - ./keycloak:/opt/keycloak/data/import:ro
+    ports:
+      - "8182:8182"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8182 && echo done"]
+      interval: 10s
+      timeout: 5s
+      retries: 15

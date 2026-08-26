@@ -62,9 +62,14 @@ alongside implementation, not after.
 ## Running it
 
 ```bash
-docker compose up -d          # Redis + Keycloak
+docker compose up -d          # Redis (6379) + Keycloak (8182)
 ./gradlew bootRun
 ```
+
+No Postgres — this service owns no database. Keycloak sits on 8182 rather than a default port so it
+does not collide with the other three services' own solo stacks; the realm imported there is a
+local stopgap holding just this service's client, replaced by `card-billing-shared`'s shared realm
+export once that repo exists.
 
 Needs `billing-service` and `notification-service` reachable for a real end-to-end run — see the
 hub repo's full-platform `docker-compose.yml` to bring up all four together. Swagger UI at
