@@ -3,7 +3,7 @@
 # in settings.gradle.kts.
 
 [versions]
-springBoot = "4.1.0"
+springBoot = "4.1.1"
 springdoc = "3.1.0"
 resilience4j = "2.4.0"
 archunit = "1.5.0"
