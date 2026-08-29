@@ -34,10 +34,7 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
     volumes:
-      # Stopgap: ARCHITECTURE.md puts the card-billing realm in the card-billing-shared submodule.
-      # That repo does not exist yet, so a local copy with just this service's client lives here
-      # and is replaced by the shared export once the submodule lands.
-      - ./keycloak:/opt/keycloak/data/import:ro
+      - ./card-billing-shared/keycloak:/opt/keycloak/data/import:ro
     ports:
       - "8182:8182"
     healthcheck:

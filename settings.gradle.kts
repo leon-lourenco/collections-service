@@ -11,9 +11,9 @@ dependencyResolutionManagement {
     repositories {
         mavenCentral()
     }
-    // The initiative-wide plan is for this catalog to come from the `card-billing-shared`
-    // submodule (`from(files("card-billing-shared/versions/libs.versions.toml"))`). That repo
-    // does not exist yet, and a submodule pointing at a missing remote makes this repo
-    // unclonable, so the catalog lives here for now with the exact versions ARCHITECTURE.md
-    // pins. Swapping to the submodule is a two-line change once the shared repo is published.
+    versionCatalogs {
+        create("libs") {
+            from(files("card-billing-shared/versions/libs.versions.toml"))
+        }
+    }
 }
